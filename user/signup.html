@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>AI PROCESS - 회원가입</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="../shared/theme.css" />
+  <link rel="icon" type="image/png" sizes="32x32" href="./favicon.png" />
+  <meta name="theme-color" content="#0a1120" />
+</head>
+<body class="auth-page">
+  <main class="auth-wrap">
+    <section class="auth-card" aria-label="회원가입 카드">
+      <div class="auth-brand">
+        <div class="auth-title">AI PROCESS</div>
+        <div class="auth-sub">회원가입 후 관리자 승인 시 이용 가능합니다.</div>
+      </div>
+
+      <div class="auth-form">
+        <label class="auth-label" for="signupId">아이디</label>
+        <input class="auth-input" id="signupId" type="text" placeholder="아이디를 입력하세요" autocomplete="username" />
+
+        <label class="auth-label" for="signupPw">비밀번호</label>
+        <input class="auth-input" id="signupPw" type="password" placeholder="비밀번호를 입력하세요" autocomplete="new-password" />
+
+        <label class="auth-label" for="signupName">이름</label>
+        <input class="auth-input" id="signupName" type="text" placeholder="이름" autocomplete="name" />
+
+        <label class="auth-label" for="signupPhone">전화번호</label>
+        <input class="auth-input" id="signupPhone" type="text" placeholder="전화번호" autocomplete="tel" />
+
+        <label class="auth-label" for="signupBank">계좌번호</label>
+        <input class="auth-input" id="signupBank" type="text" placeholder="은행/계좌번호" autocomplete="off" />
+
+        <div class="auth-actions">
+          <button class="auth-btn primary" id="btnSignup" type="button">회원가입</button>
+          <button class="auth-btn" id="btnBackLogin" type="button">로그인으로</button>
+        </div>
+
+        <div class="auth-msg err" id="errorBox"></div>
+        <div class="auth-msg ok" id="okBox"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="../shared/config.js"></script>
+  <script src="../shared/sb.js"></script>
+  <script src="../shared/app.js"></script>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const signupId = document.getElementById('signupId');
+      const signupPw = document.getElementById('signupPw');
+      const signupName = document.getElementById('signupName');
+      const signupPhone = document.getElementById('signupPhone');
+      const signupBank = document.getElementById('signupBank');
+      const errorBox = document.getElementById('errorBox');
+      const okBox = document.getElementById('okBox');
+      const btnSignup = document.getElementById('btnSignup');
+      const btnBackLogin = document.getElementById('btnBackLogin');
+
+      const sb = (window.aiProcess && typeof window.aiProcess.sb === 'function')
+        ? window.aiProcess.sb()
+        : (window.raon && typeof window.raon.sb === 'function')
+          ? window.raon.sb()
+          : null;
+
+      if (!sb || typeof sb.from !== 'function') {
+        errorBox.textContent = '초기화 오류: Supabase 연결이 준비되지 않았습니다.\nshared/config.js / shared/sb.js 로딩을 확인하세요.';
+        console.error('[AI PROCESS] sb init failed:', sb);
+        return;
+      }
+
+      function setErr(msg) { errorBox.textContent = msg || ''; okBox.textContent = ''; }
+      function setOk(msg) { okBox.textContent = msg || ''; errorBox.textContent = ''; }
+
+      async function signup() {
+        const username = (signupId.value || '').trim();
+        const password = (signupPw.value || '').trim();
+        const name = (signupName.value || '').trim();
+        const phone = (signupPhone.value || '').trim();
+        const bank = (signupBank.value || '').trim();
+
+        setErr('');
+        if (!username || !password) return setErr('아이디와 비밀번호는 필수입니다.');
+
+        btnSignup.disabled = true;
+        btnSignup.textContent = '처리 중...';
+
+        try {
+          const { data: exists, error: exErr } = await sb
+            .from('app_users')
+            .select('id')
+            .eq('username', username)
+            .maybeSingle();
+
+          if (exErr) {
+            console.error('[signup] check error:', exErr);
+            setErr('회원 확인 실패: ' + (exErr.message || 'Supabase 오류'));
+            return;
+          }
+          if (exists) return setErr('이미 사용 중인 아이디입니다.');
+
+          const payload = {
+            username,
+            password_hash: password,
+            name: name || null,
+            phone: phone || null,
+            bank_account: bank || null,
+            approved: false,
+            role: 'user',
+            status: '대기중',
+            amount: 0,
+            realized_amount: 0
+          };
+
+          const { error } = await sb.from('app_users').insert(payload);
+          if (error) {
+            console.error('[signup] insert error:', error);
+            setErr('회원가입 실패: ' + (error.message || '권한/RLS 또는 컬럼명 확인'));
+            return;
+          }
+
+          setOk('회원가입 완료! 관리자 승인 후 로그인 가능합니다.');
+          setTimeout(() => { window.location.href = 'index.html'; }, 900);
+        } finally {
+          btnSignup.disabled = false;
+          btnSignup.textContent = '회원가입';
+        }
+      }
+
+      btnSignup.addEventListener('click', signup);
+      signupPw.addEventListener('keydown', (e) => { if (e.key === 'Enter') signup(); });
+      btnBackLogin.addEventListener('click', () => { window.location.href = 'index.html'; });
+    });
+  </script>
+</body>
+</html>
