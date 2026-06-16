@@ -214,6 +214,35 @@
     .sortbar{ background: rgba(18,26,36,.85); border: 1px solid var(--line); }
     .sortlabel{ color: var(--muted); }
 
+
+    .pending-alert {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 0 0 14px;
+      padding: 10px 12px;
+      border: 1px solid rgba(248,113,113,.45);
+      border-radius: 14px;
+      background: rgba(127,29,29,.28);
+      color: #fecaca;
+      font-size: 13px;
+      box-shadow: var(--shadow);
+    }
+    .pending-alert.show { display: flex; }
+    .pending-alert strong { color: #fff; }
+    .pending-alert button {
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(254,202,202,.5);
+      background: rgba(15,23,32,.75);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
   </style>
 </head>
 <body>
@@ -246,6 +275,15 @@
         <button id="btnSortApply" type="button" class="btn-sort">적용</button>
       </div>
 
+    </div>
+
+
+    <div id="pendingAlert" class="pending-alert" role="status" aria-live="polite">
+      <div>
+        <strong>승인 대기 회원이 있습니다.</strong>
+        승인 완료 처리 전까지 알림음이 반복됩니다.
+      </div>
+      <button id="btnEnablePendingSound" type="button">알림음 활성화</button>
     </div>
 
     <section>
@@ -295,6 +333,89 @@
     // 정렬 상태
     let __sortKey = 'created_at';
     let __sortAsc = true;
+
+
+    // 승인대기 알림음 상태
+    let pendingAlertTimer = null;
+    let pendingBeepTimer = null;
+    let pendingAudioCtx = null;
+    let pendingSoundUnlocked = false;
+
+    function unlockPendingSound() {
+      try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return false;
+        if (!pendingAudioCtx) pendingAudioCtx = new AudioContext();
+        if (pendingAudioCtx.state === 'suspended') pendingAudioCtx.resume();
+        pendingSoundUnlocked = true;
+        const btn = document.getElementById('btnEnablePendingSound');
+        if (btn) btn.textContent = '알림음 켜짐';
+        return true;
+      } catch (e) {
+        console.warn('[ADMIN] 알림음 초기화 실패:', e);
+        return false;
+      }
+    }
+
+    function playPendingBeep() {
+      if (!pendingSoundUnlocked || !pendingAudioCtx) return;
+      try {
+        const osc = pendingAudioCtx.createOscillator();
+        const gain = pendingAudioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.0001, pendingAudioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.18, pendingAudioCtx.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, pendingAudioCtx.currentTime + 0.42);
+        osc.connect(gain);
+        gain.connect(pendingAudioCtx.destination);
+        osc.start();
+        osc.stop(pendingAudioCtx.currentTime + 0.45);
+      } catch (e) {
+        console.warn('[ADMIN] 알림음 재생 실패:', e);
+      }
+    }
+
+    function setPendingAlert(hasPending) {
+      const box = document.getElementById('pendingAlert');
+      if (box) box.classList.toggle('show', !!hasPending);
+
+      if (hasPending) {
+        if (!pendingBeepTimer) {
+          playPendingBeep();
+          pendingBeepTimer = setInterval(playPendingBeep, 2500);
+        }
+      } else if (pendingBeepTimer) {
+        clearInterval(pendingBeepTimer);
+        pendingBeepTimer = null;
+      }
+    }
+
+    async function checkPendingApprovals() {
+      try {
+        const { data, error } = await sb
+          .from('app_users')
+          .select('id')
+          .neq('role', 'admin')
+          .eq('approved', false)
+          .limit(1);
+
+        if (error) {
+          console.error('[ADMIN] 승인대기 확인 오류:', error);
+          return;
+        }
+
+        setPendingAlert(Array.isArray(data) && data.length > 0);
+      } catch (e) {
+        console.error('[ADMIN] 승인대기 확인 실패:', e);
+      }
+    }
+
+    function startPendingApprovalWatcher() {
+      checkPendingApprovals();
+      if (pendingAlertTimer) clearInterval(pendingAlertTimer);
+      pendingAlertTimer = setInterval(checkPendingApprovals, 8000);
+    }
 
 function checkAdmin() {
       const flag = localStorage.getItem('raon_admin_login'); // ✅ 로그인 페이지에서 저장하는 키로 통일
@@ -454,6 +575,7 @@ if (flag !== 'true') {
           return;
         }
         alert('저장되었습니다.');
+        await checkPendingApprovals();
       }
     });
 
@@ -484,8 +606,20 @@ if (flag !== 'true') {
       // applySortFromUI(); loadUsers();
     });
 
+
+    document.getElementById('btnEnablePendingSound')?.addEventListener('click', () => {
+      unlockPendingSound();
+      playPendingBeep();
+    });
+
+    // 브라우저 정책상 관리자 화면에서 한 번 클릭/키 입력 후 알림음이 재생됩니다.
+    ['click', 'keydown', 'touchstart'].forEach((eventName) => {
+      window.addEventListener(eventName, unlockPendingSound, { once: true });
+    });
+
     checkAdmin();
     loadUsers();
+    startPendingApprovalWatcher();
   </script>
 </body>
 </html>
