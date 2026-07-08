@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <title>AI PROCESS ADMIN - 회원 & 투자 관리</title>
+  <title> AI ADMIN - 회원 & 투자 관리</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="../shared/theme.css" />
   <style>
@@ -190,6 +190,18 @@
     }
     .btnAdj.plus{ border-color: rgba(52,211,153,.35); }
     .btnAdj.minus{ border-color: rgba(248,113,113,.35); }
+    .btnWithdraw{
+      padding:8px 12px;
+      border-radius:999px;
+      border:1px solid rgba(168,85,247,.45);
+      background:rgba(88,28,135,.22);
+      color:#e9d5ff;
+      font-size:12px;
+      font-weight:900;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+    .btnWithdraw:hover{ filter:brightness(1.12); }
     .inpDeltaAmount, .inpDeltaRealized{
       width:120px;
       padding:8px 10px;
@@ -214,40 +226,11 @@
     .sortbar{ background: rgba(18,26,36,.85); border: 1px solid var(--line); }
     .sortlabel{ color: var(--muted); }
 
-
-    .pending-alert {
-      display: none;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin: 0 0 14px;
-      padding: 10px 12px;
-      border: 1px solid rgba(248,113,113,.45);
-      border-radius: 14px;
-      background: rgba(127,29,29,.28);
-      color: #fecaca;
-      font-size: 13px;
-      box-shadow: var(--shadow);
-    }
-    .pending-alert.show { display: flex; }
-    .pending-alert strong { color: #fff; }
-    .pending-alert button {
-      padding: 6px 10px;
-      border-radius: 999px;
-      border: 1px solid rgba(254,202,202,.5);
-      background: rgba(15,23,32,.75);
-      color: #fff;
-      font-size: 12px;
-      font-weight: 800;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-
   </style>
 </head>
 <body>
   <aside class="sidebar">
-    <div class="logo"><span>AI PROCESS</span><br />ADMIN</div>
+    <div class="logo"><span> AI</span><br />ADMIN</div>
 
     <div class="menu-title">메인</div>
     <a href="dashboard.html" class="nav-item active">회원 & 투자 관리</a>
@@ -275,15 +258,6 @@
         <button id="btnSortApply" type="button" class="btn-sort">적용</button>
       </div>
 
-    </div>
-
-
-    <div id="pendingAlert" class="pending-alert" role="status" aria-live="polite">
-      <div>
-        <strong>승인 대기 회원이 있습니다.</strong>
-        승인 완료 처리 전까지 알림음이 반복됩니다.
-      </div>
-      <button id="btnEnablePendingSound" type="button">알림음 활성화</button>
     </div>
 
     <section>
@@ -324,7 +298,7 @@
   <script>
     // shared/sb.js 에서 생성됨
     // ✅ 반드시 ()로 '클라이언트'를 가져옵니다.
-    const sb = (window.raon && typeof window.raon.sb === 'function') ? window.raon.sb() : null;
+    const sb = (window. && typeof window..sb === 'function') ? window..sb() : null;
     if (!sb || typeof sb.from !== 'function') {
       alert('Supabase 연결이 준비되지 않았습니다. shared/config.js → shared/sb.js → shared/app.js 로딩 순서를 확인하세요.');
       throw new Error('[ADMIN] Supabase client not ready');
@@ -334,91 +308,8 @@
     let __sortKey = 'created_at';
     let __sortAsc = true;
 
-
-    // 승인대기 알림음 상태
-    let pendingAlertTimer = null;
-    let pendingBeepTimer = null;
-    let pendingAudioCtx = null;
-    let pendingSoundUnlocked = false;
-
-    function unlockPendingSound() {
-      try {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContext) return false;
-        if (!pendingAudioCtx) pendingAudioCtx = new AudioContext();
-        if (pendingAudioCtx.state === 'suspended') pendingAudioCtx.resume();
-        pendingSoundUnlocked = true;
-        const btn = document.getElementById('btnEnablePendingSound');
-        if (btn) btn.textContent = '알림음 켜짐';
-        return true;
-      } catch (e) {
-        console.warn('[ADMIN] 알림음 초기화 실패:', e);
-        return false;
-      }
-    }
-
-    function playPendingBeep() {
-      if (!pendingSoundUnlocked || !pendingAudioCtx) return;
-      try {
-        const osc = pendingAudioCtx.createOscillator();
-        const gain = pendingAudioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.value = 880;
-        gain.gain.setValueAtTime(0.0001, pendingAudioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.18, pendingAudioCtx.currentTime + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, pendingAudioCtx.currentTime + 0.42);
-        osc.connect(gain);
-        gain.connect(pendingAudioCtx.destination);
-        osc.start();
-        osc.stop(pendingAudioCtx.currentTime + 0.45);
-      } catch (e) {
-        console.warn('[ADMIN] 알림음 재생 실패:', e);
-      }
-    }
-
-    function setPendingAlert(hasPending) {
-      const box = document.getElementById('pendingAlert');
-      if (box) box.classList.toggle('show', !!hasPending);
-
-      if (hasPending) {
-        if (!pendingBeepTimer) {
-          playPendingBeep();
-          pendingBeepTimer = setInterval(playPendingBeep, 2500);
-        }
-      } else if (pendingBeepTimer) {
-        clearInterval(pendingBeepTimer);
-        pendingBeepTimer = null;
-      }
-    }
-
-    async function checkPendingApprovals() {
-      try {
-        const { data, error } = await sb
-          .from('app_users')
-          .select('id')
-          .neq('role', 'admin')
-          .eq('approved', false)
-          .limit(1);
-
-        if (error) {
-          console.error('[ADMIN] 승인대기 확인 오류:', error);
-          return;
-        }
-
-        setPendingAlert(Array.isArray(data) && data.length > 0);
-      } catch (e) {
-        console.error('[ADMIN] 승인대기 확인 실패:', e);
-      }
-    }
-
-    function startPendingApprovalWatcher() {
-      checkPendingApprovals();
-      if (pendingAlertTimer) clearInterval(pendingAlertTimer);
-      pendingAlertTimer = setInterval(checkPendingApprovals, 8000);
-    }
-
 function checkAdmin() {
-      const flag = localStorage.getItem('raon_admin_login'); // ✅ 로그인 페이지에서 저장하는 키로 통일
+      const flag = localStorage.getItem('_admin_login'); // ✅ 로그인 페이지에서 저장하는 키로 통일
 if (flag !== 'true') {
   alert('관리자 로그인이 필요합니다.');
   window.location.href = 'login.html';
@@ -483,6 +374,7 @@ if (flag !== 'true') {
                        data-id="${user.id}" class="inpDeltaRealized" />
                 <button type="button" class="btnAdj plus" data-kind="realized" data-sign="+" data-id="${user.id}">+</button>
                 <button type="button" class="btnAdj minus" data-kind="realized" data-sign="-" data-id="${user.id}">-</button>
+                <button type="button" class="btnWithdraw" data-username="${user.username || ''}" data-id="${user.id}">출금</button>
               </div>
             </td>
             <td>
@@ -520,6 +412,45 @@ if (flag !== 'true') {
     // + / - 조정 버튼 & 저장 버튼
     document.getElementById('userTbody').addEventListener('click', async (e) => {
       const t = e.target;
+
+      // 실현수익 출금 처리
+      if (t.classList.contains('btnWithdraw')) {
+        const id = t.getAttribute('data-id');
+        const username = t.getAttribute('data-username');
+        const inp = document.querySelector('.inpDeltaRealized[data-id="' + id + '"]');
+        const raw = Number((inp?.value || '0').toString().replace(/,/g, ''));
+
+        const msg = raw > 0
+          ? username + ' 회원의 실현수익에서 ' + raw.toLocaleString('ko-KR') + '원을 출금 처리할까요?'
+          : username + ' 회원의 실현수익 전체를 출금 처리할까요?';
+
+        if (!confirm(msg)) return;
+
+        try {
+          const params = raw > 0
+            ? { p_username: username, p_amount: raw, p_memo: '출금' }
+            : { p_username: username, p_amount: null, p_memo: '출금' };
+
+          const { data, error } = await sb.rpc('admin_withdraw_realized', params);
+          if (error) {
+            console.error(error);
+            alert('출금 처리 중 오류가 발생했습니다. (DB 함수/RLS 확인)');
+            return;
+          }
+          const result = Array.isArray(data) ? data[0] : data;
+          if (result && result.ok === false) {
+            alert(result.message || '출금 처리에 실패했습니다.');
+            return;
+          }
+          if (inp) inp.value = '';
+          alert('출금 처리되었습니다.');
+          await loadUsers();
+        } catch (err) {
+          console.error(err);
+          alert('서버와 통신 중 오류가 발생했습니다.');
+        }
+        return;
+      }
 
       // 금액/실현수익 +/-
       if (t.classList.contains('btnAdj')) {
@@ -575,13 +506,12 @@ if (flag !== 'true') {
           return;
         }
         alert('저장되었습니다.');
-        await checkPendingApprovals();
       }
     });
 
     document.getElementById('btnAdminLogout').addEventListener('click', () => {
-      localStorage.removeItem('raon_admin_login');
-      localStorage.removeItem('raon_admin');
+      localStorage.removeItem('ai_admin_logged_in');
+      localStorage.removeItem('ai_admin_user');
       alert('관리자 로그아웃 되었습니다.');
       window.location.href = 'login.html';
     });
@@ -606,20 +536,8 @@ if (flag !== 'true') {
       // applySortFromUI(); loadUsers();
     });
 
-
-    document.getElementById('btnEnablePendingSound')?.addEventListener('click', () => {
-      unlockPendingSound();
-      playPendingBeep();
-    });
-
-    // 브라우저 정책상 관리자 화면에서 한 번 클릭/키 입력 후 알림음이 재생됩니다.
-    ['click', 'keydown', 'touchstart'].forEach((eventName) => {
-      window.addEventListener(eventName, unlockPendingSound, { once: true });
-    });
-
     checkAdmin();
     loadUsers();
-    startPendingApprovalWatcher();
   </script>
 </body>
 </html>
